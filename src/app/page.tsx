@@ -6,10 +6,12 @@ import {
   MessageOutlined,
   ReloadOutlined,
   SendOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { useChat } from "ai/react";
 import { Tooltip } from "antd";
 import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import FuelPriceChat from "./components/FuelPriceChat";
 import VocabDictionary from "./components/VocabDictionary";
 
 // Sidebar nav items
@@ -26,12 +28,19 @@ const NAV_ITEMS = [
     label: "Từ điển Cô Lành",
     badge: null,
   },
+  {
+    id: "fuel",
+    icon: <ThunderboltOutlined />,
+    label: "Kiều Giá Xăng ⛽",
+    badge: "Tools",
+  },
 ];
 
 // Header config per tab
 const HEADER_CONFIG: Record<string, { name: string; status: string; avatar: string }> = {
   chat: { name: "Cô Minh", status: "● Đang trực tuyến", avatar: "👩‍🏫" },
   vocab: { name: "Cô Lành", status: "● Từ điển AI", avatar: "📖" },
+  fuel: { name: "Cô Kiều ⛽", status: "● Giá xăng thời gian thực", avatar: "⛽" },
 };
 
 function formatTime(date: Date) {
@@ -285,6 +294,13 @@ export default function ChatPage() {
         {activeTab === "vocab" && (
           <div className="vocab-tab-container">
             <VocabDictionary />
+          </div>
+        )}
+
+        {/* ===== TAB: FUEL ===== */}
+        {activeTab === "fuel" && (
+          <div className="fuel-tab-container">
+            <FuelPriceChat />
           </div>
         )}
       </main>
