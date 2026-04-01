@@ -299,9 +299,7 @@ export default function ChatPage() {
 
         {/* ===== TAB: FUEL ===== */}
         {activeTab === "fuel" && (
-          <div className="fuel-tab-container">
-            <FuelPriceChat />
-          </div>
+          <FuelPriceChat />
         )}
       </main>
     </div>

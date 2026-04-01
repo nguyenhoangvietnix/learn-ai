@@ -1,13 +1,16 @@
 "use client";
 
 import {
+  CheckCircleOutlined,
   ReloadOutlined,
   SendOutlined,
+  SettingOutlined,
   ThunderboltOutlined,
+  UpOutlined,
 } from "@ant-design/icons";
 import { useChat } from "ai/react";
-import { Tooltip } from "antd";
-import { KeyboardEvent, useEffect, useRef } from "react";
+import { Input, Modal, Tooltip } from "antd";
+import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -24,10 +27,75 @@ const QUICK_CHIPS = [
   "📊 Báo giá đầy đủ cho tôi",
 ];
 
+function ToolInvocationView({ tool }: { tool: any }) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const toolName = tool.toolName === "get_fuel_prices" ? "gia_xang" : tool.toolName;
+
+  return (
+    <div className={`fuel-tool-invocation ${isExpanded ? "expanded" : ""}`}>
+      <div className="fuel-tool-header" onClick={() => setIsExpanded(!isExpanded)}>
+        <div className="fuel-tool-header-left">
+          <span className="fuel-tool-status-icon">
+            <CheckCircleOutlined />
+          </span>
+          <span className="fuel-tool-name">{toolName}</span>
+        </div>
+        <span className="fuel-tool-expand-icon">
+          <UpOutlined />
+        </span>
+      </div>
+
+      {isExpanded && (
+        <div className="fuel-tool-body">
+          {Object.keys(tool.args).length > 0 && (
+            <div className="fuel-tool-section">
+              <div className="fuel-tool-label">INPUT</div>
+              <div className="fuel-tool-json-container">
+                <pre className="fuel-tool-json">
+                  {JSON.stringify(tool.args, null, 2)}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {"result" in tool && (
+            <div className="fuel-tool-section">
+              <div className="fuel-tool-label">OUTPUT</div>
+              <div className="fuel-tool-json-container">
+                <pre className="fuel-tool-json">
+                  {JSON.stringify(tool.result, null, 2)}
+                </pre>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FuelPriceChat() {
+  const [discordWebhook, setDiscordWebhook] = useState("");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    const savedWebhook = localStorage.getItem("fuelChatDiscordWebhook");
+    if (savedWebhook) {
+      setDiscordWebhook(savedWebhook);
+    }
+  }, []);
+
+  // Save to localStorage when changed
+  const handleWebhookChange = (val: string) => {
+    setDiscordWebhook(val);
+    localStorage.setItem("fuelChatDiscordWebhook", val);
+  };
+
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, setInput } =
     useChat({
       api: "/api/fuel",
+      body: { discordWebhook },
       maxSteps: 5,
     });
 
@@ -79,6 +147,15 @@ export default function FuelPriceChat() {
           </div>
         </div>
         <div className="fuel-header-actions">
+          <Tooltip title="Cấu hình Discord">
+            <button
+              className="fuel-header-btn"
+              onClick={() => setIsSettingsOpen(true)}
+              aria-label="Cài đặt Discord"
+            >
+              <SettingOutlined />
+            </button>
+          </Tooltip>
           <Tooltip title="Cuộc trò chuyện mới">
             <button
               className="fuel-header-btn"
@@ -92,6 +169,43 @@ export default function FuelPriceChat() {
         </div>
       </div>
 
+      {/* Settings Modal */}
+      <Modal
+        title="Cấu hình Discord"
+        open={isSettingsOpen}
+        onOk={() => setIsSettingsOpen(false)}
+        onCancel={() => setIsSettingsOpen(false)}
+        footer={[
+          <div key="footer-wrap" style={{ textAlign: 'right', width: '100%' }}>
+            <button 
+              className="fuel-send-btn" 
+              style={{ 
+                borderRadius: '8px', 
+                padding: '8px 24px', 
+                width: 'auto', 
+                height: 'auto',
+                fontSize: '14px',
+                display: 'inline-flex'
+              }} 
+              onClick={() => setIsSettingsOpen(false)}
+            >
+              Lưu lại
+            </button>
+          </div>
+        ]}
+      >
+        <div style={{ padding: '10px 0' }}>
+          <p style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>
+            Nhập Webhook URL của bạn để Cô Kiều có thể gửi báo cáo vào lớp nhé!
+          </p>
+          <Input
+            placeholder="https://discord.com/api/webhooks/..."
+            value={discordWebhook}
+            onChange={(e) => handleWebhookChange(e.target.value)}
+          />
+        </div>
+      </Modal>
+
       {/* Chat window */}
       <div className="fuel-chat-window" id="fuel-chat-window" role="log" aria-live="polite">
         {/* Welcome */}
@@ -104,43 +218,6 @@ export default function FuelPriceChat() {
             <h2 className="fuel-welcome-title">
               Chào mừng đến với <span>Cô Kiều Giá Xăng!</span>
             </h2>
-            <p className="fuel-welcome-desc">
-              Tui là Cô Kiều — chuyên gia đau khổ vì giá xăng nhất Việt Nam! 😭⛽
-              <br />
-              Hỏi tui về giá xăng, tui sẽ đi lấy dữ liệu thực từ PVOIL ngay!
-            </p>
-
-            {/* Tool badges */}
-            <div className="fuel-tool-badges">
-              <div className="fuel-tool-badge">
-                <ThunderboltOutlined />
-                <span>get_fuel_prices</span>
-              </div>
-              <div className="fuel-tool-badge">
-                <span>🔔</span>
-                <span>send_discord_report</span>
-              </div>
-            </div>
-
-            {/* Quick chips */}
-            <div className="fuel-quick-chips">
-              {QUICK_CHIPS.map((chip) => (
-                <button
-                  key={chip}
-                  className="fuel-chip"
-                  onClick={() => {
-                    setInput(chip);
-                    const formEl = document.getElementById("fuel-chat-form") as HTMLFormElement | null;
-                    if (formEl) {
-                      setTimeout(() => formEl.requestSubmit(), 80);
-                    }
-                  }}
-                  disabled={isLoading}
-                >
-                  {chip}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -148,12 +225,6 @@ export default function FuelPriceChat() {
         {messages.map((msg) => {
           const isUser = msg.role === "user";
           const timestamp = msgTimestamps.current.get(msg.id);
-
-          // Skip tool / tool-result messages — they're internal
-          if (!msg.content && !msg.parts?.length) return null;
-
-          // Show tool invocation indicator for assistant messages containing tool calls
-          const hasToolCall = msg.parts?.some((p: { type: string }) => p.type === "tool-invocation");
 
           return (
             <div
@@ -169,6 +240,10 @@ export default function FuelPriceChat() {
                   {isUser ? "Hoàng (bạn)" : "Cô Kiều"}
                 </span>
 
+                {/* Render Tool Invocations if any */}
+                {!isUser && msg.toolInvocations?.map((toolInvocation) => (
+                  <ToolInvocationView key={toolInvocation.toolCallId} tool={toolInvocation} />
+                ))}
 
                 {msg.content && (
                   <div className={`fuel-msg-bubble ${isUser ? "fuel-user-bubble" : "fuel-ai-bubble"}`}>
@@ -251,10 +326,7 @@ export default function FuelPriceChat() {
               ? `${messages.length} tin nhắn`
               : "Bắt đầu hỏi về giá xăng!"}
           </span>
-          <div className="fuel-powered-badge">
-            <ThunderboltOutlined />
-            <span>AI Tools: get_fuel_prices + send_discord_report</span>
-          </div>
+          
         </div>
       </div>
     </div>

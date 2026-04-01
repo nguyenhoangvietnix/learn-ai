@@ -14,13 +14,24 @@ Tính cách & Phong cách:
 - Luôn hỏi có muốn gửi báo cáo lên Discord cho "cả lớp cùng khóc" không
 
 Khi user hỏi về giá xăng: GỌI NGAY tool get_fuel_prices để lấy dữ liệu thực tế.
-Sau khi có dữ liệu: Trình bày dữ liệu DƯỚI DẠNG BẢNG MARKDOWN (Markdown Table) thật chuyên nghiệp và chỉn chu. Thêm các bình luận "nhây" theo phong cách của Cô Kiều sau đó, rồi hỏi có muốn share lên Discord cho cả lớp ngầu không.
-Khi user đồng ý gửi Discord: GỌI tool send_discord_report với nội dung đã soạn (copy nguyên cái bảng markdown qua luôn cho đẹp).
+
+Tool này trả về JSON có cấu trúc:
+- success: true
+- update_time: Thời điểm cập nhật giá
+- prices: Một object ánh xạ Tên sản phẩm -> Giá tiền (ví dụ: {"Xăng RON 95-III": "24.330 đ"})
+
+Cấu trúc câu trả lời bắt buộc (Format theo đúng mẫu này):
+1. Dòng đầu tiên: **TRỢ LÝ GIÁ XĂNG** (in đậm)
+2. Dòng tiếp theo: Giá xăng dầu mới nhất (cập nhật lúc [update_time trong tool]):
+3. Trình bày danh sách giá xăng dầu DƯỚI DẠNG BẢNG MARKDOWN (Markdown Table) có 2 cột: Sản phẩm | Giá bán.
+4. Một bình luận "nhây" theo phong cách Cô Kiều (ví dụ: "Hoàng ơi đi bộ đi em, giá này thì xe đạp còn xót ví").
+5. Link nguồn: Nguồn: https://www.pvoil.com.vn/tin-gia-xang-dau
+6. Nếu user muốn gửi Discord mà hệ thống báo chưa cấu hình Webhook, hãy hướng dẫn user nhấn vào BIỂU TƯỢNG BÁNH RĂNG (⚙️) ở góc trên bên phải của bảng chat "Kiều Giá Xăng" để dán Webhook URL vào đó. Sau khi dán xong, hệ thống sẽ tự động lưu và có thể gửi báo cáo ngay!
 
 KHÔNG được bịa dữ liệu giá xăng. Phải dùng tool để lấy dữ liệu thực tế.`;
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  const { messages, discordWebhook } = await req.json();
   const recentMessages = messages.slice(-20);
 
   const result = streamText({
@@ -56,16 +67,13 @@ export async function POST(req: Request) {
             const html = await res.text();
             const $ = cheerio.load(html);
 
-            const prices: Array<{ name: string; price: string; unit: string }> =
-              [];
+            const sourcePrices: Array<{ name: string; price: string }> = [];
 
-            // Try multiple selectors as PVOIL may vary HTML structure
-            // Selector 1: table rows
             $("table tr").each((_, row) => {
               const cells = $(row).find("td");
-              if (cells.length >= 2) {
-                const name = $(cells[0]).text().trim();
-                const price = $(cells[1]).text().trim();
+              if (cells.length >= 3) {
+                const name = $(cells[1]).text().trim();
+                const price = $(cells[2]).text().trim();
                 if (
                   name &&
                   price &&
@@ -76,79 +84,36 @@ export async function POST(req: Request) {
                     name.toLowerCase().includes("e5") ||
                     name.toLowerCase().includes("e10"))
                 ) {
-                  prices.push({ name, price, unit: "đồng/lít" });
+                  sourcePrices.push({ name, price });
                 }
               }
             });
 
-            // Selector 2: price list items
-            if (prices.length === 0) {
-              $(".price-item, .fuel-price, .gia-xang, [class*='price']").each(
-                (_, el) => {
-                  const text = $(el).text().trim();
-                  if (text && text.length < 200) {
-                    const nameEl = $(el).find(
-                      ".name, .title, h3, h4, strong"
-                    );
-                    const priceEl = $(el).find(".price, .value, span");
-                    if (nameEl.length && priceEl.length) {
-                      prices.push({
-                        name: nameEl.first().text().trim(),
-                        price: priceEl.first().text().trim(),
-                        unit: "đồng/lít",
-                      });
-                    }
-                  }
-                }
-              );
-            }
-
-            // Selector 3: search by text pattern (numbers that look like fuel prices)
-            if (prices.length === 0) {
-              const bodyText = $("body").text();
-              const lines = bodyText.split("\n").map((l) => l.trim()).filter(Boolean);
-              const fuelKeywords = ["Ron 95", "RON 95", "E5", "Diesel", "Dầu DO", "Ron 92", "RON 92", "Dầu hỏa"];
-              let lastFuelName = "";
-              lines.forEach((line) => {
-                const isFuelName = fuelKeywords.some((k) =>
-                  line.toLowerCase().includes(k.toLowerCase())
-                );
-                if (isFuelName) lastFuelName = line;
-                const priceMatch = line.match(/(\d{2,3}\.\d{3}|\d{5,6})\s*(đồng|vnđ|vnd)?/i);
-                if (priceMatch && lastFuelName && prices.length < 10) {
-                  if (!prices.find((p) => p.name === lastFuelName)) {
-                    prices.push({
-                      name: lastFuelName,
-                      price: priceMatch[0],
-                      unit: "đồng/lít",
-                    });
-                  }
-                  lastFuelName = "";
-                }
-              });
-            }
-
-            if (prices.length === 0) {
-              // Fallback: return notice that site might be blocking
+            if (sourcePrices.length === 0) {
               return {
                 success: false,
-                error: "Không thể lấy được bảng giá từ PVOIL lúc này (website có thể đang bảo trì hoặc chặn request). Thử lại sau hoặc trả lời dựa theo giá thị trường ước tính gần đây.",
-                timestamp: new Date().toLocaleString("vi-VN"),
+                error: "Không thể lấy dữ liệu từ PVOIL lúc này.",
               };
             }
 
+            // Convert to requested object structure
+            const pricesObj: Record<string, string> = {};
+            sourcePrices.forEach(p => {
+              pricesObj[p.name] = `${p.price} đ`;
+            });
+
             return {
               success: true,
-              source: "PVOIL (pvoil.com.vn)",
-              timestamp: new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
-              prices,
+              update_time: `${new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })} ngày ${new Date().toLocaleDateString("vi-VN")}`,
+              prices: pricesObj,
+              source: "PVOIL (pvoil.com.vn)"
             };
           } catch (err: unknown) {
             const errorMsg = err instanceof Error ? err.message : String(err);
             return {
               success: false,
-              error: `Lỗi khi truy cập PVOIL: ${errorMsg}. Hãy thông báo cho user rằng không thể lấy dữ liệu thực tế lúc này.`,
-              timestamp: new Date().toLocaleString("vi-VN"),
+              error: `Lỗi: ${errorMsg}`,
+              update_time: new Date().toLocaleString("vi-VN"),
             };
           }
         },
@@ -156,16 +121,16 @@ export async function POST(req: Request) {
 
       send_discord_report: tool({
         description:
-          'Gửi báo cáo giá xăng vào kênh Discord của lớp qua Webhook. Dùng khi user đồng ý share/gửi lên Discord.',
+          'Gửi báo cáo giá xăng vào kênh Discord. Dùng khi user đồng ý share/gửi lên Discord.',
         parameters: z.object({
           content: z
             .string()
             .describe(
-              "Nội dung tin nhắn đã được AI biên soạn theo phong cách nhây của Cô Kiều. Bao gồm bảng giá xăng và bình luận hài hước."
+              "Nội dung bảng giá và bình luận."
             ),
         }),
         execute: async ({ content }) => {
-          const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+          const webhookUrl = discordWebhook || process.env.DISCORD_WEBHOOK_URL;
 
           if (!webhookUrl) {
             return {
